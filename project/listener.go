@@ -39,13 +39,13 @@ type defaultListener struct {
 }
 
 // NewDefaultListener create a default listener for the specified project.
-func NewDefaultListener(p *Project) chan<- events.Event {
-	l := defaultListener{
+func NewDefaultListener(p *Project) *defaultListener {
+	l := &defaultListener{
 		listenChan: make(chan events.Event),
 		project:    p,
 	}
 	go l.start()
-	return l.listenChan
+	return l
 }
 
 func (d *defaultListener) start() {
@@ -78,4 +78,8 @@ func (d *defaultListener) start() {
 			logf("[%d/%d] [%s]: %s %s", d.upCount, d.project.ServiceConfigs.Len(), event.ServiceName, event.EventType, buffer.Bytes())
 		}
 	}
+}
+
+func (d *defaultListener) close() {
+	close(d.listenChan)
 }
