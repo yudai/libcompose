@@ -76,7 +76,11 @@ type Project struct {
 // RemoveOrphans implements project.RuntimeProject.RemoveOrphans.
 // It will remove orphan containers that are part of the project but not to any services.
 func (p *Project) RemoveOrphans(ctx context.Context, projectName string, serviceConfigs *config.ServiceConfigs) error {
-	client := p.clientFactory.Create(nil)
+	client, err := p.clientFactory.Create(nil)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
 	filter := filters.NewArgs()
 	filter.Add("label", labels.PROJECT.EqString(projectName))
 	containers, err := client.ContainerList(ctx, types.ContainerListOptions{

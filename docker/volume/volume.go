@@ -152,6 +152,10 @@ type DockerFactory struct {
 // Create implements project.VolumesFactory Create method.
 // It creates a Volumes (that implements project.Volumes) from specified configurations.
 func (f *DockerFactory) Create(projectName string, volumeConfigs map[string]*config.VolumeConfig, serviceConfigs *config.ServiceConfigs, volumeEnabled bool) (project.Volumes, error) {
-	cli := f.ClientFactory.Create(nil)
+	cli, err := f.ClientFactory.Create(nil)
+	if err != nil {
+		return nil, err
+	}
+	defer cli.Close()
 	return VolumesFromServices(cli, projectName, volumeConfigs, serviceConfigs, volumeEnabled)
 }

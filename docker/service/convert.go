@@ -223,7 +223,11 @@ func Convert(c *config.ServiceConfig, ctx project.Context, clientFactory compose
 			}
 		case strings.HasPrefix(c.NetworkMode, "container:"):
 			containerName := c.NetworkMode[10:]
-			client := clientFactory.Create(nil)
+			client, err := clientFactory.Create(nil)
+			if err != nil {
+				return nil, nil, err
+			}
+			defer client.Close()
 			container, err := composecontainer.Get(context.Background(), client, containerName)
 			if err != nil {
 				return nil, nil, err

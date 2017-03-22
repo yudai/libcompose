@@ -44,8 +44,13 @@ type Options struct {
 	APIVersion string
 }
 
+type APIClientCloser interface {
+	client.APIClient
+	Close() error
+}
+
 // Create creates a docker client based on the specified options.
-func Create(c Options) (client.APIClient, error) {
+func Create(c Options) (APIClientCloser, error) {
 	if c.Host == "" {
 		if os.Getenv("DOCKER_API_VERSION") == "" {
 			os.Setenv("DOCKER_API_VERSION", DefaultAPIVersion)

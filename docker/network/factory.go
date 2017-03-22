@@ -14,6 +14,10 @@ type DockerFactory struct {
 // Create implements project.NetworksFactory Create method.
 // It creates a Networks (that implements project.Networks) from specified configurations.
 func (f *DockerFactory) Create(projectName string, networkConfigs map[string]*config.NetworkConfig, serviceConfigs *config.ServiceConfigs, networkEnabled bool) (project.Networks, error) {
-	cli := f.ClientFactory.Create(nil)
+	cli, err := f.ClientFactory.Create(nil)
+	if err != nil {
+		return nil, err
+	}
+	defer cli.Close()
 	return NetworksFromServices(cli, projectName, networkConfigs, serviceConfigs, networkEnabled)
 }

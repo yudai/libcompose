@@ -46,7 +46,11 @@ func (s *Service) createContainer(ctx context.Context, namer Namer, oldContainer
 	}
 
 	// FIXME(vdemeester): oldContainer should be a Container instead of a string
-	client := s.clientFactory.Create(s)
+	client, err := s.clientFactory.Create(s)
+	if err != nil {
+		return nil, err
+	}
+	defer client.Close()
 	if oldContainer != "" {
 		info, err := client.ContainerInspect(ctx, oldContainer)
 		if err != nil {

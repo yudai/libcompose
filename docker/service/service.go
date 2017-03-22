@@ -11,7 +11,7 @@ import (
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/network"
-	"github.com/docker/docker/client"
+	dockerclient "github.com/docker/docker/client"
 	"github.com/docker/go-connections/nat"
 	"github.com/docker/libcompose/config"
 	"github.com/docker/libcompose/docker/auth"
@@ -97,7 +97,6 @@ func (s *Service) Create(ctx context.Context, options options.Create) error {
 
 func (s *Service) namer(ctx context.Context, count int) (Namer, error) {
 	var namer Namer
-	var err error
 
 	if s.serviceConfig.ContainerName != "" {
 		if count > 1 {
@@ -105,7 +104,11 @@ func (s *Service) namer(ctx context.Context, count int) (Namer, error) {
 		}
 		namer = NewSingleNamer(s.serviceConfig.ContainerName)
 	} else {
-		client := s.clientFactory.Create(s)
+		client, err := s.clientFactory.Create(s)
+		if err != nil {
+			return nil, err
+		}
+		defer client.Close()
 		namer, err = NewNamer(ctx, client, s.project.Name, s.name, false)
 		if err != nil {
 			return nil, err
@@ -115,7 +118,11 @@ func (s *Service) namer(ctx context.Context, count int) (Namer, error) {
 }
 
 func (s *Service) collectContainers(ctx context.Context) ([]*container.Container, error) {
-	client := s.clientFactory.Create(s)
+	client, err := s.clientFactory.Create(s)
+	if err != nil {
+		return nil, err
+	}
+	defer client.Close()
 	containers, err := container.ListByFilter(ctx, client, labels.SERVICE.Eq(s.name), labels.PROJECT.Eq(s.project.Name))
 	if err != nil {
 		return nil, err
@@ -139,7 +146,12 @@ func (s *Service) ensureImageExists(ctx context.Context, noBuild bool, forceBuil
 		return s.build(ctx, options.Build{})
 	}
 
-	exists, err := image.Exists(ctx, s.clientFactory.Create(s), s.imageName())
+	client, err := s.clientFactory.Create(s)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+	exists, err := image.Exists(ctx, client, s.imageName())
 	if err != nil {
 		return err
 	}
@@ -173,8 +185,13 @@ func (s *Service) build(ctx context.Context, buildOptions options.Build) error {
 	if s.Config().Build.Context == "" {
 		return fmt.Errorf("Specified service does not have a build section")
 	}
+	client, err := s.clientFactory.Create(s)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
 	builder := &builder.DaemonBuilder{
-		Client:           s.clientFactory.Create(s),
+		Client:           client,
 		ContextDirectory: s.Config().Build.Context,
 		Dockerfile:       s.Config().Build.Dockerfile,
 		BuildArgs:        s.Config().Build.Args,
@@ -193,7 +210,11 @@ func (s *Service) constructContainers(ctx context.Context, count int) ([]*contai
 		return nil, err
 	}
 
-	client := s.clientFactory.Create(s)
+	client, err := s.clientFactory.Create(s)
+	if err != nil {
+		return nil, err
+	}
+	defer client.Close()
 
 	var namer Namer
 
@@ -250,7 +271,11 @@ func (s *Service) Run(ctx context.Context, commandParts []string, options option
 		return -1, err
 	}
 
-	client := s.clientFactory.Create(s)
+	client, err := s.clientFactory.Create(s)
+	if err != nil {
+		return -1, err
+	}
+	defer client.Close()
 
 	namer, err := NewNamer(ctx, client, s.project.Name, s.name, true)
 	if err != nil {
@@ -385,7 +410,11 @@ func (s *Service) connectContainerToNetworks(ctx context.Context, c *container.C
 // NetworkDisconnect disconnects the container from the specified network
 func (s *Service) NetworkDisconnect(ctx context.Context, c *container.Container, net *yaml.Network, oneOff bool) error {
 	containerID := c.ID()
-	client := s.clientFactory.Create(s)
+	client, err := s.clientFactory.Create(s)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
 	return client.NetworkDisconnect(ctx, net.RealName, containerID, true)
 }
 
@@ -393,7 +422,11 @@ func (s *Service) NetworkDisconnect(ctx context.Context, c *container.Container,
 // FIXME(vdemeester) will be refactor with Container refactoring
 func (s *Service) NetworkConnect(ctx context.Context, c *container.Container, net *yaml.Network, oneOff bool) error {
 	containerID := c.ID()
-	client := s.clientFactory.Create(s)
+	client, err := s.clientFactory.Create(s)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
 	internalLinks, err := s.getLinks()
 	if err != nil {
 		return err
@@ -486,9 +519,14 @@ func (s *Service) OutOfSync(ctx context.Context, c *container.Container) (bool, 
 		return true, nil
 	}
 
-	image, err := image.InspectImage(ctx, s.clientFactory.Create(s), c.ImageConfig())
+	client, err := s.clientFactory.Create(s)
 	if err != nil {
-		if client.IsErrImageNotFound(err) {
+		return false, err
+	}
+	defer client.Close()
+	image, err := image.InspectImage(ctx, client, c.ImageConfig())
+	if err != nil {
+		if dockerclient.IsErrImageNotFound(err) {
 			logrus.Debugf("Image %s do not exist, do not know if it's out of sync", c.Image())
 			return false, nil
 		}
@@ -622,8 +660,12 @@ func (s *Service) Pull(ctx context.Context) error {
 	if s.Config().Image == "" {
 		return nil
 	}
-
-	return image.PullImage(ctx, s.clientFactory.Create(s), s.name, s.authLookup, s.Config().Image)
+	client, err := s.clientFactory.Create(s)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+	return image.PullImage(ctx, client, s.name, s.authLookup, s.Config().Image)
 }
 
 // Pause implements Service.Pause. It puts into pause the container(s) related
@@ -645,14 +687,20 @@ func (s *Service) Unpause(ctx context.Context) error {
 // RemoveImage implements Service.RemoveImage. It removes images used for the service
 // depending on the specified type.
 func (s *Service) RemoveImage(ctx context.Context, imageType options.ImageType) error {
+	client, err := s.clientFactory.Create(s)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+
 	switch imageType {
 	case "local":
 		if s.Config().Image != "" {
 			return nil
 		}
-		return image.RemoveImage(ctx, s.clientFactory.Create(s), s.imageName())
+		return image.RemoveImage(ctx, client, s.imageName())
 	case "all":
-		return image.RemoveImage(ctx, s.clientFactory.Create(s), s.imageName())
+		return image.RemoveImage(ctx, client, s.imageName())
 	default:
 		// Don't do a thing, should be validated up-front
 		return nil
@@ -667,7 +715,11 @@ func (s *Service) Events(ctx context.Context, evts chan events.ContainerEvent) e
 	filter := filters.NewArgs()
 	filter.Add("label", fmt.Sprintf("%s=%s", labels.PROJECT, s.project.Name))
 	filter.Add("label", fmt.Sprintf("%s=%s", labels.SERVICE, s.name))
-	client := s.clientFactory.Create(s)
+	client, err := s.clientFactory.Create(s)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
 	eventq, errq := client.Events(ctx, types.EventsOptions{
 		Filters: filter,
 	})
